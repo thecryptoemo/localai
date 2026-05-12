@@ -22,6 +22,10 @@
       {
         "command": "localai.tests",
         "title": "LocalAI: Write Tests"
+      },
+      {
+        "command": "localai.refactor",
+         "title": "LocalAI: Refactor File"
       }
     ],
     "keybindings": [
@@ -42,6 +46,12 @@
         "key": "ctrl+shift+t",
         "mac": "cmd+shift+t",
         "when": "editorTextFocus"
+      },
+      {
+       "command": "localai.refactor",
+       "key": "ctrl+shift+r",
+       "mac": "cmd+shift+r",
+       "when": "editorTextFocus"
       }
     ],
     "menus": {

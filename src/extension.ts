@@ -38,6 +38,14 @@ ${selected}
 </selected>
 
 Find and fix all bugs in the selected code.
+
+Rules:
+- Do NOT add any comments whatsoever — no inline comments, no block comments
+- Do NOT add docstrings unless the original code already had them
+- Do NOT change what the code does, only how it does it
+- Keep type hints if the language uses them — they are not comments
+- Write code a senior engineer would write, not code that explains itself
+
 Respond ONLY in this exact format, nothing else:
 <code>
 the complete fixed code here, ready to paste
@@ -71,6 +79,37 @@ all test code here, ready to paste into a test file
 brief description of what the tests cover
 </explanation>
 `,
+
+  refactor: (selected, context) => `
+You are an expert software engineer specialising in Python and TypeScript.
+Here is the full file to refactor:
+<file>
+${context}
+</file>
+
+Improve this code by:
+- Better variable and function naming
+- Removing redundancy and unnecessary loops
+- Improving readability and structure
+- Using idiomatic patterns for the language
+
+Rules:
+- Do NOT add any comments whatsoever — no inline comments, no block comments
+- Do NOT add docstrings unless the original code already had them
+- Do NOT change what the code does, only how it does it
+- Do NOT add new features
+- Keep type hints if the language uses them — they are not comments
+- Write code a senior engineer would write, not code that explains itself
+
+Respond ONLY in this exact format:
+<code>
+the complete refactored file here, ready to replace the original
+</code>
+
+<explanation>
+bullet points of what you changed and why
+</explanation>
+`,
 };
 
 async function askOllama(
@@ -97,13 +136,26 @@ async function askOllama(
 }
 
 function parseResponse(raw: string): { code: string | null; explanation: string } {
-  const codeMatch = raw.match(/<code>([\s\S]*?)<\/code>/);
-  const explanationMatch = raw.match(/<explanation>([\s\S]*?)<\/explanation>/);
+  const xmlCodeMatch = raw.match(/<code>([\s\S]*?)<\/code>/);
+  const xmlExplanationMatch = raw.match(/<explanation>([\s\S]*?)<\/explanation>/);
 
-  return {
-    code: codeMatch ? codeMatch[1].trim() : null,
-    explanation: explanationMatch ? explanationMatch[1].trim() : raw,
-  };
+  if (xmlCodeMatch) {
+    return {
+      code: xmlCodeMatch[1].trim(),
+      explanation: xmlExplanationMatch ? xmlExplanationMatch[1].trim() : raw,
+    };
+  }
+
+  const markdownMatch = raw.match(/```(?:\w+)?\n([\s\S]*?)```/);
+  if (markdownMatch) {
+    const afterCode = raw.split(/```(?:\w+)?\n[\s\S]*?```/).pop()?.trim() || '';
+    return {
+      code: markdownMatch[1].trim(),
+      explanation: afterCode || 'Refactored successfully.',
+    };
+  }
+
+  return { code: null, explanation: raw };
 }
 
 function showResult(
@@ -233,6 +285,102 @@ async function handleCommand(task: string, label: string) {
   );
 }
 
+async function handleRefactor() {
+  const editor = vscode.window.activeTextEditor;
+  if (!editor) {
+    vscode.window.showWarningMessage('Open a file to refactor.');
+    return;
+  }
+
+  const originalText = editor.document.getText();
+  if (!originalText.trim()) {
+    vscode.window.showWarningMessage('File is empty.');
+    return;
+  }
+
+  // Must be a saved file — not an untitled buffer
+  if (editor.document.isUntitled) {
+    vscode.window.showWarningMessage('Please save the file first (Cmd+S), then run Refactor.');
+    return;
+  }
+
+  const uri = editor.document.uri;
+
+  let raw: string;
+  try {
+    raw = await askOllama('refactor', originalText, originalText);
+  } catch (err) {
+    vscode.window.showErrorMessage('Could not reach Ollama. Run: ollama serve');
+    return;
+  }
+
+  const { code, explanation } = parseResponse(raw);
+
+  if (!code) {
+    vscode.window.showErrorMessage('LocalAI: Could not parse refactored code. Try again.');
+    return;
+  }
+
+  try {
+    const tempUri = uri.with({ path: uri.path + '.refactored' });
+    const encoder = new TextEncoder();
+    await vscode.workspace.fs.writeFile(tempUri, encoder.encode(code));
+
+    await vscode.commands.executeCommand(
+      'vscode.diff',
+      uri,
+      tempUri,
+      `LocalAI Refactor — ${uri.path.split('/').pop()}`
+    );
+
+    const choice = await vscode.window.showInformationMessage(
+      'LocalAI refactored your file. Review the diff then decide.',
+      { modal: false },
+      'Accept',
+      'Reject'
+    );
+
+    if (choice === 'Accept') {
+      const edit = new vscode.WorkspaceEdit();
+      const fullRange = new vscode.Range(
+        editor.document.positionAt(0),
+        editor.document.positionAt(originalText.length)
+      );
+      edit.replace(uri, fullRange, code);
+      await vscode.workspace.applyEdit(edit);
+      await editor.document.save();
+      // Ask if they want the summary after applying
+      const showSummary = await vscode.window.showInformationMessage(
+        'Refactor applied and saved!',
+        'Show What Changed',
+        'Done'
+      );
+      if (showSummary === 'Show What Changed' && explanation) {
+        showResult('Refactor Summary', `<explanation>${explanation}</explanation>`, editor, editor.selection);
+      }
+    } else {
+      vscode.window.showInformationMessage('LocalAI: Refactor rejected. Original unchanged.');
+    }
+
+    await vscode.workspace.fs.delete(tempUri);
+    await vscode.commands.executeCommand('workbench.action.closeActiveEditor');
+
+    if (explanation) {
+      const showSummary = await vscode.window.showInformationMessage(
+        'Refactor applied! Want to see what changed?',
+        'Show Summary',
+        'No Thanks'
+      );
+      if (showSummary === 'Show Summary') {
+        showResult('Refactor Summary', `<explanation>${explanation}</explanation>`, editor, editor.selection);
+      }
+    }
+
+  } catch (err) {
+    vscode.window.showErrorMessage(`LocalAI Error: ${String(err)}`);
+  }
+}
+
 export function activate(context: vscode.ExtensionContext) {
   context.subscriptions.push(
     vscode.commands.registerCommand('localai.explain', () =>
@@ -243,6 +391,9 @@ export function activate(context: vscode.ExtensionContext) {
     ),
     vscode.commands.registerCommand('localai.tests', () =>
       handleCommand('tests', 'Write Tests')
+    ),
+    vscode.commands.registerCommand('localai.refactor', () =>
+      handleRefactor()
     )
   );
 }
