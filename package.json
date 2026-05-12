@@ -10,6 +10,25 @@
   "activationEvents": [],
   "main": "./dist/extension.js",
   "contributes": {
+  "viewsContainers": {
+    "activitybar": [
+     {
+        "id": "localai-sidebar",
+        "title": "LocalAI",
+        "icon": "images/robot.svg"
+      }
+    ]
+  },
+    "views": {
+      "localai-sidebar": [
+      {
+        "type": "webview",
+        "id": "localai.chatView",
+        "name": "Chat",
+        "icon": "images/robot.svg"
+      }
+    ]
+  },
     "commands": [
       {
         "command": "localai.explain",
@@ -25,7 +44,7 @@
       },
       {
         "command": "localai.refactor",
-         "title": "LocalAI: Refactor File"
+        "title": "LocalAI: Refactor File"
       }
     ],
     "keybindings": [
@@ -48,10 +67,10 @@
         "when": "editorTextFocus"
       },
       {
-       "command": "localai.refactor",
-       "key": "ctrl+shift+r",
-       "mac": "cmd+shift+r",
-       "when": "editorTextFocus"
+        "command": "localai.refactor",
+        "key": "ctrl+shift+r",
+        "mac": "cmd+shift+r",
+        "when": "editorTextFocus"
       }
     ],
     "menus": {

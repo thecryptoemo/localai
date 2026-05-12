@@ -1,5 +1,5 @@
 import * as vscode from 'vscode';
-
+import { LocalAIChatViewProvider } from './chatView';
 const MODEL = 'qwen2.5-coder:3b';
 const OLLAMA_URL = 'http://localhost:11434/api/generate';
 
@@ -298,7 +298,6 @@ async function handleRefactor() {
     return;
   }
 
-  // Must be a saved file — not an untitled buffer
   if (editor.document.isUntitled) {
     vscode.window.showWarningMessage('Please save the file first (Cmd+S), then run Refactor.');
     return;
@@ -349,7 +348,7 @@ async function handleRefactor() {
       edit.replace(uri, fullRange, code);
       await vscode.workspace.applyEdit(edit);
       await editor.document.save();
-      // Ask if they want the summary after applying
+
       const showSummary = await vscode.window.showInformationMessage(
         'Refactor applied and saved!',
         'Show What Changed',
@@ -365,23 +364,20 @@ async function handleRefactor() {
     await vscode.workspace.fs.delete(tempUri);
     await vscode.commands.executeCommand('workbench.action.closeActiveEditor');
 
-    if (explanation) {
-      const showSummary = await vscode.window.showInformationMessage(
-        'Refactor applied! Want to see what changed?',
-        'Show Summary',
-        'No Thanks'
-      );
-      if (showSummary === 'Show Summary') {
-        showResult('Refactor Summary', `<explanation>${explanation}</explanation>`, editor, editor.selection);
-      }
-    }
-
   } catch (err) {
     vscode.window.showErrorMessage(`LocalAI Error: ${String(err)}`);
   }
 }
 
 export function activate(context: vscode.ExtensionContext) {
+  const chatProvider = new LocalAIChatViewProvider(context.extensionUri);
+  context.subscriptions.push(
+    vscode.window.registerWebviewViewProvider(
+      LocalAIChatViewProvider.viewType,
+      chatProvider
+    )
+  );
+
   context.subscriptions.push(
     vscode.commands.registerCommand('localai.explain', () =>
       handleCommand('explain', 'Explain Code')
